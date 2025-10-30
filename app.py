@@ -2,6 +2,7 @@
 import os
 import json
 import subprocess
+import logging
 from flask import Flask, request, jsonify, Response
 
 app = Flask(__name__)
@@ -27,35 +28,30 @@ def verify():
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        # WAJIB balas hub.challenge persis dalam body (HTTP 200)
         return Response(challenge or "", status=200, mimetype="text/html")
     return Response("Forbidden", status=403)
 
 @app.post("/webhooks/whatsapp")
 def handle():
-    payload = request.get_json(force=True, silent=True) or {}
-    # ——— Parsers umum:
-    # a) Format “calls” Cloud API (akan datang di field webhook WhatsApp Business).
-    # b) Format provider (contoh: YCloud) type=whatsapp.call.status.updated
-    #
-    # Contoh payload YCloud (disederhanakan):
-    # { "type":"whatsapp.call.status.updated",
-    #   "callingStatusUpdated": { "status":"ACCEPTED", "wacid":"...", "recipientPhone":"+62..." } }
-    #
-    # Kamu bisa buat parser fleksibel seperti ini:
-    evt_type = payload.get("type")
-    if evt_type == "whatsapp.call.status.updated":
-        info = payload.get("callingStatusUpdated", {})
-        status = (info.get("status") or "").upper()
-        phone  = info.get("recipientPhone") or ""
-        wacid  = info.get("wacid") or ""
-        if status in ("ACCEPTED", "ACTIVE"):
-            run_your_program(phone, wacid)
+    raw = request.get_data(as_text=True) or ""
+    app.logger.info("WEBHOOK RAW BODY: %s", raw)   # << tampil di Deploy Logs
 
-    # (Opsional) Tambahkan parser alternatif jika kamu menerima struktur Cloud API langsung.
-    # Lihat panduan webhook WhatsApp Business Platform. :contentReference[oaicite:2]{index=2}
+    payload = request.get_json(silent=True) or {}
 
-    return jsonify(ok=True)
+    # contoh ekstraksi status WhatsApp (sesuai dok):
+    try:
+        change = payload["entry"][0]["changes"][0]
+        value  = change.get("value", {})
+        statuses = value.get("statuses") or []
+        if statuses:
+            app.logger.info("STATUSES: %s", json.dumps(statuses, ensure_ascii=False))
+            # ambil status pertama
+            s = statuses[0]
+            # contoh field umum: s["status"], s["id"] (wamid), s["timestamp"], s.get("errors")
+    except Exception as e:
+        app.logger.warning("Parse webhook failed: %s", e)
+
+    return Response(status=200)
     
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
