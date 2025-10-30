@@ -6,6 +6,7 @@ import logging
 from flask import Flask, request, jsonify, Response
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "WEBHOOK_TOKEN")
 
